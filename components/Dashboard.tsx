@@ -14,6 +14,13 @@ const toDate = (val: any): Date => {
     return isNaN(d.getTime()) ? new Date() : d;
 };
 
+// Format date for input datetime-local (YYYY-MM-DDTHH:mm)
+const formatDateForInput = (dateVal: any) => {
+    const d = toDate(dateVal);
+    const pad = (n: number) => n < 10 ? '0' + n : n;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
 // Helper to compare dates (ignoring time)
 const isSameDay = (d1: Date, d2: Date) => {
     return d1.getFullYear() === d2.getFullYear() &&
@@ -32,6 +39,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ logs, userData, journalEnt
     const [goalType, setGoalType] = useState<'days' | 'date'>('days');
     const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
     const [visibleLogsCount, setVisibleLogsCount] = useState(7);
+    
+    // Edit Log State
+    const [editingLogId, setEditingLogId] = useState<string | null>(null);
 
     // Sort logs descending
     const sortedLogs = [...logs].sort((a, b) => toDate(b.startDate).getTime() - toDate(a.startDate).getTime());
@@ -224,6 +234,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ logs, userData, journalEnt
         }
     };
 
+    const handleUpdateLog = async (id: string, e: React.FormEvent) => {
+        e.preventDefault();
+        if (!auth.currentUser) return;
+        const form = e.target as HTMLFormElement;
+        const s = (form.elements.namedItem('editStart') as HTMLInputElement).value;
+        const end = (form.elements.namedItem('editEnd') as HTMLInputElement).value;
+
+        if (s) {
+            const updates: any = { startDate: Timestamp.fromDate(new Date(s)) };
+            if (end) updates.endDate = Timestamp.fromDate(new Date(end));
+            else if (end === "") updates.endDate = null; // Allow clearing end date if explicitly empty
+
+            await updateDoc(doc(db, 'users', auth.currentUser.uid, 'logs', id), updates);
+            setEditingLogId(null);
+        }
+    };
+
     return (
         <div className="space-y-6">
             {/* HUD */}
@@ -348,7 +375,49 @@ export const Dashboard: React.FC<DashboardProps> = ({ logs, userData, journalEnt
                         const isActive = !log.endDate;
                         const d = getDuration(log.startDate, log.endDate);
                         const isExpanded = expandedLogId === log.id;
-                        const history = isExpanded ? generateStreakHistory(log) : [];
+                        const isEditing = editingLogId === log.id;
+                        const history = isExpanded && !isEditing ? generateStreakHistory(log) : [];
+
+                        if (isEditing) {
+                            return (
+                                <form key={log.id} onSubmit={(e) => handleUpdateLog(log.id, e)} className="p-4 border border-neon bg-gray-900">
+                                    <div className="flex flex-col gap-2 mb-2">
+                                        <label className="text-xs text-neon">START DATE</label>
+                                        <input 
+                                            type="datetime-local" 
+                                            name="editStart" 
+                                            required
+                                            defaultValue={formatDateForInput(log.startDate)}
+                                            className="bg-black border border-gray-600 text-white p-2"
+                                        />
+                                    </div>
+                                    <div className="flex flex-col gap-2 mb-4">
+                                        <label className="text-xs text-neon">END DATE (LEAVE EMPTY IF ACTIVE)</label>
+                                        <input 
+                                            type="datetime-local" 
+                                            name="editEnd" 
+                                            defaultValue={log.endDate ? formatDateForInput(log.endDate) : ''}
+                                            className="bg-black border border-gray-600 text-white p-2"
+                                        />
+                                    </div>
+                                    <div className="flex gap-2 justify-end">
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setEditingLogId(null)}
+                                            className="px-4 py-2 border border-gray-500 text-gray-400 hover:text-white"
+                                        >
+                                            CANCEL
+                                        </button>
+                                        <button 
+                                            type="submit"
+                                            className="px-4 py-2 bg-neon text-black font-bold hover:bg-white"
+                                        >
+                                            SAVE
+                                        </button>
+                                    </div>
+                                </form>
+                            );
+                        }
 
                         return (
                             <div 
@@ -368,7 +437,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ logs, userData, journalEnt
                                     <span className="text-sm text-gray-500 font-mono">
                                         {isExpanded ? '▼ DETAILS' : '▶ DETAILS'}
                                     </span>
-                                    <div className="flex gap-2">
+                                    <div className="flex gap-2" onClick={e => e.stopPropagation()}>
+                                        <button 
+                                            onClick={() => setEditingLogId(log.id)}
+                                            className="text-xs md:text-sm border border-gray-600 text-gray-300 px-3 py-1 hover:border-white hover:text-white"
+                                        >
+                                            EDIT
+                                        </button>
                                         {isActive && (
                                             <button 
                                                 onClick={(e) => handleEndStreak(log.id, e)}

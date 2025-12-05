@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { StreakLog, UserProfile } from '../types';
 import { LEVEL_CONFIG, ACHIEVEMENTS_CONFIG } from '../constants';
@@ -110,7 +111,7 @@ export const Stats: React.FC<StatsProps> = ({ logs, userData }) => {
 
             if (log.endDate) {
                  const key = getDateKey(end);
-                 ends.set(key, log.goalAchieved);
+                 ends.set(key, log.goalAchieved || false); // Default to false if undefined
             }
 
             const current = new Date(start);
@@ -177,7 +178,8 @@ export const Stats: React.FC<StatsProps> = ({ logs, userData }) => {
             const currentDay = new Date(year, month, d);
             const dateKey = getDateKey(currentDay);
             const isActive = activeDateSet.has(dateKey);
-            const isGoalMet = endDateMap.get(dateKey);
+            const isEnded = endDateMap.has(dateKey);
+            const isGoalMet = endDateMap.get(dateKey); // Boolean or undefined
             const isStartDate = startDateSet.has(dateKey);
             
             const isGoalDay = dateKey === goalDateKey;
@@ -190,19 +192,23 @@ export const Stats: React.FC<StatsProps> = ({ logs, userData }) => {
                 bgClass = 'bg-neon text-black font-bold shadow-[0_0_5px_rgba(39,255,71,0.5)]';
             }
 
-            if (isGoalMet !== undefined) {
-                const endColor = isGoalMet ? '#ffd700' : '#ff3333';
-                const startColor = '#27ff47';
+            // Streak End Visual Logic
+            if (isEnded) {
+                const met = isGoalMet === true; // Handle undefined as false
+                const endColor = met ? '#ffd700' : '#ff3333';
+                const startColor = '#27ff47'; // Neon Green
 
-                if (isGoalMet) {
+                if (met) {
                     bgClass = 'bg-gold text-black font-bold shadow-[0_0_5px_#ffd700]';
                 } else {
                     bgClass = 'bg-error text-white font-bold shadow-[0_0_5px_#ff3333]';
                 }
                 
-                // Transition logic: Ended + Started same day
+                // Overlap Visual: Streak Ended AND New Streak Started on same day
+                // Ensure robustness by checking if the day is registered as both an end and a start
                 if (isStartDate) {
                      bgClass = 'text-white font-bold'; 
+                     // Use inline style for reliable gradient rendering
                      style = {
                         background: `linear-gradient(135deg, ${endColor} 50%, ${startColor} 50%)`
                      };
@@ -212,7 +218,7 @@ export const Stats: React.FC<StatsProps> = ({ logs, userData }) => {
             days.push(
                 <div 
                     key={d} 
-                    className={`aspect-square relative flex items-center justify-center text-sm md:text-lg font-mono border border-transparent
+                    className={`aspect-square relative flex items-center justify-center text-lg font-mono border border-transparent
                     ${bgClass}
                     ${isToday ? 'border-white' : ''}
                     hover:border-neonDim transition-colors cursor-default`}
@@ -220,8 +226,16 @@ export const Stats: React.FC<StatsProps> = ({ logs, userData }) => {
                     title={`${currentDay.toDateString()}`}
                 >
                     {d}
+                    {isStartDate && (
+                        <span className="absolute top-0.5 left-0.5 text-[0.6rem] leading-none opacity-80" title="Streak Started">▶</span>
+                    )}
+                    {isEnded && (
+                        <span className="absolute top-0.5 right-0.5 text-[0.6rem] leading-none opacity-90" title={isGoalMet ? "Goal Met" : "Streak Ended"}>
+                            {isGoalMet ? '★' : '✕'}
+                        </span>
+                    )}
                     {isGoalDay && (
-                        <span className="absolute -top-1.5 -right-1.5 text-base drop-shadow-md z-10">🎯</span>
+                        <span className="absolute -bottom-1 -right-1 text-base drop-shadow-md z-10" title="Goal Target">🎯</span>
                     )}
                 </div>
             );
@@ -253,11 +267,11 @@ export const Stats: React.FC<StatsProps> = ({ logs, userData }) => {
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
                 <div className="border border-neon p-4 text-center bg-panel">
                     <h3 className="text-neon font-retro text-base mb-2">CURRENT</h3>
-                    <p className="text-3xl md:text-5xl font-bold text-white">{Math.floor(currentDays)}d</p>
+                    <p className="text-4xl md:text-5xl font-bold text-white">{Math.floor(currentDays)}d</p>
                 </div>
                 <div className="border border-neon p-4 text-center bg-panel">
                     <h3 className="text-neon font-retro text-base mb-2">RECORD</h3>
-                    <p className="text-3xl md:text-5xl font-bold text-white">{Math.floor(maxDays)}d</p>
+                    <p className="text-4xl md:text-5xl font-bold text-white">{Math.floor(maxDays)}d</p>
                 </div>
                 <div className="border border-neon p-4 text-center bg-panel">
                     <h3 className="text-neon font-retro text-base mb-2">PEAK RANK</h3>
@@ -265,11 +279,11 @@ export const Stats: React.FC<StatsProps> = ({ logs, userData }) => {
                 </div>
                 <div className="border border-neon p-4 text-center bg-panel">
                     <h3 className="text-neon font-retro text-base mb-2">TOTAL (YTD)</h3>
-                    <p className="text-3xl md:text-5xl font-bold text-white">{Math.floor(totalDaysYtd)}</p>
+                    <p className="text-4xl md:text-5xl font-bold text-white">{Math.floor(totalDaysYtd)}</p>
                 </div>
                  <div className="border border-neon p-4 text-center bg-panel">
                     <h3 className="text-neon font-retro text-base mb-2">AVERAGE</h3>
-                    <p className="text-3xl md:text-5xl font-bold text-white">{avgDays.toFixed(1)}d</p>
+                    <p className="text-4xl md:text-5xl font-bold text-white">{avgDays.toFixed(1)}d</p>
                 </div>
             </div>
 
@@ -308,6 +322,13 @@ export const Stats: React.FC<StatsProps> = ({ logs, userData }) => {
                     'grid-cols-1'
                 }`}>
                     {Array.from({ length: numMonths }).map((_, i) => renderMonth(i))}
+                </div>
+                
+                <div className="mt-4 flex flex-wrap gap-4 text-sm font-mono text-gray-500">
+                    <div className="flex items-center gap-2"><span className="text-[0.6rem]">▶</span> Start</div>
+                    <div className="flex items-center gap-2"><span className="text-[0.6rem]">✕</span> End (Fail)</div>
+                    <div className="flex items-center gap-2"><span className="text-[0.6rem]">★</span> Goal Met</div>
+                    <div className="flex items-center gap-2"><span>🎯</span> Target</div>
                 </div>
             </div>
 
