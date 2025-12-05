@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { doc, getDoc, collection, getDocs, query, orderBy } from 'firebase/firestore';
-import { signInAnonymously } from 'firebase/auth';
+import { doc, getDoc, collection, getDocs, query, orderBy, where } from 'firebase/firestore';
+import { signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
 import { db, auth } from '../services/firebase';
 import { UserProfile, StreakLog } from '../types';
 import { Stats } from './Stats';
@@ -15,26 +15,60 @@ export const PublicProfile: React.FC = () => {
     useEffect(() => {
         const fetchProfile = async () => {
             const params = new URLSearchParams(window.location.search);
-            const uid = params.get('u');
+            const linkId = params.get('u'); // Could be UID or Username
 
-            if (!uid) {
+            if (!linkId) {
                 setError("INVALID LINK");
                 setLoading(false);
                 return;
             }
 
             try {
-                // Ensure auth for Firestore rules
-                if (!auth.currentUser) await signInAnonymously(auth);
+                // 1. Ensure Auth State (Wait for initialization to prevent race conditions)
+                const user = await new Promise<User | null>((resolve) => {
+                    // Check if already initialized
+                    if (auth.currentUser) {
+                        resolve(auth.currentUser);
+                    } else {
+                        const unsub = onAuthStateChanged(auth, (u) => {
+                            unsub();
+                            resolve(u);
+                        });
+                    }
+                });
 
-                const userSnap = await getDoc(doc(db, 'users', uid));
-                if (!userSnap.exists()) {
+                if (!user) {
+                    await signInAnonymously(auth);
+                }
+
+                // 2. Resolve User ID (Check UID first, then Username)
+                let targetUid = linkId;
+                let data: UserProfile | undefined;
+
+                // Try fetching as direct UID
+                const userSnap = await getDoc(doc(db, 'users', linkId));
+                
+                if (userSnap.exists()) {
+                    data = userSnap.data() as UserProfile;
+                } else {
+                    // Try fetching by username
+                    // Note: This requires a query. If not unique, it takes the first match.
+                    const q = query(collection(db, 'users'), where('username', '==', linkId));
+                    const querySnap = await getDocs(q);
+                    
+                    if (!querySnap.empty) {
+                        const match = querySnap.docs[0];
+                        targetUid = match.id;
+                        data = match.data() as UserProfile;
+                    }
+                }
+
+                if (!data) {
                     setError("USER NOT FOUND");
                     setLoading(false);
                     return;
                 }
 
-                const data = userSnap.data() as UserProfile;
                 if (!data.publicProfile?.enabled) {
                     setError("PROFILE IS PRIVATE");
                     setLoading(false);
@@ -43,19 +77,24 @@ export const PublicProfile: React.FC = () => {
 
                 setUserData(data);
 
-                // Fetch logs if needed for stats/calendar/awards
-                const q = query(collection(db, 'users', uid, 'logs'), orderBy('startDate', 'desc'));
-                const logsSnap = await getDocs(q);
-                const logsData = logsSnap.docs.map(d => ({ id: d.id, ...d.data() } as StreakLog));
-                setLogs(logsData);
+                // 3. Fetch Logs (if public visibility allows)
+                if (data.publicProfile.showStats || data.publicProfile.showCalendar || data.publicProfile.showAwards) {
+                    const qLogs = query(collection(db, 'users', targetUid, 'logs'), orderBy('startDate', 'desc'));
+                    const logsSnap = await getDocs(qLogs);
+                    const logsData = logsSnap.docs.map(d => ({ id: d.id, ...d.data() } as StreakLog));
+                    setLogs(logsData);
+                }
 
                 setLoading(false);
-            } catch (err) {
-                console.error(err);
-                setError("ACCESS DENIED");
+            } catch (err: any) {
+                console.error("Public Profile Error:", err);
+                let msg = "ACCESS DENIED";
+                if (err.code === 'permission-denied') msg = "PERMISSION DENIED (CHECK RULES)";
+                setError(msg);
                 setLoading(false);
             }
         };
+        
         fetchProfile();
     }, []);
 

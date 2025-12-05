@@ -34,7 +34,9 @@ export const Profile: React.FC<ProfileProps> = ({ userData }) => {
         });
     };
 
-    const publicUrl = `${window.location.origin}?u=${auth.currentUser?.uid}`;
+    // Use username if available for a shorter link, otherwise fallback to UID
+    const identifier = userData.username || auth.currentUser?.uid || '';
+    const publicUrl = `${window.location.origin}?u=${encodeURIComponent(identifier)}`;
 
     const copyLink = () => {
         navigator.clipboard.writeText(publicUrl);
